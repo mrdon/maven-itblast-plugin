@@ -1,4 +1,4 @@
-package org.twdata.maven;
+package org.twdata.maven.itblast;
 
 import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
@@ -11,6 +11,7 @@ import org.codehaus.plexus.util.xml.Xpp3Dom;
 
 import java.util.Map;
 import java.util.HashMap;
+import java.io.*;
 
 /**
  * Run functional tests
@@ -49,6 +50,14 @@ public class ExecuteIntegrationTestsMojo
      * @parameter expression="${rmi.port}"
      */
     private int rmiPort = 10232;
+
+    /**
+     * Project build directory
+     *
+     * @parameter expression="${project.build.directory}"
+     * @required
+     */
+    private File projectBuildDirectory;
 
     /**
      * Servlet container wait
@@ -179,6 +188,11 @@ public class ExecuteIntegrationTestsMojo
                     ),
                     env
                 );
+            File base = new File(projectBuildDirectory, container.getId());
+            File source = new File(base, "surefire-reports");
+            File dest = new File(projectBuildDirectory, "surefire-reports");
+            dest.mkdir();
+            renameAndCopyTests(source, dest, container.getId());
 
             executeMojo(
                     cargoPlugin,
@@ -188,6 +202,45 @@ public class ExecuteIntegrationTestsMojo
                 );
         }
     }
+
+    void renameAndCopyTests(File source, File dest, String container) {
+        for (File test : source.listFiles(new FilenameFilter() {
+                public boolean accept(File file, String s) { return s.startsWith("TEST-") && s.endsWith(".xml"); }
+            })) {
+
+            String testName = test.getName().substring("TEST-".length(), test.getName().length() - ".xml".length());
+            String betterTestName = testName+"OnContainer"+container;
+
+            File target = new File(dest, "TEST-"+betterTestName+".xml");
+            BufferedReader fin = null;
+            PrintWriter fout = null;
+            try {
+                fin = new BufferedReader(new InputStreamReader(new FileInputStream(test)));
+                fout = new PrintWriter(new FileWriter(target));
+                String line;
+                while ((line = fin.readLine()) != null) {
+                    fout.println(line.replaceAll(testName, betterTestName));
+                }
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            } finally {
+
+                try
+                {
+                    if (fin != null) {
+                        fin.close();
+                    }
+                } catch (IOException e)
+                {
+                    e.printStackTrace();
+                }
+                if (fout != null) {
+                    fout.close();
+                }
+            }
+        }
+    }
+
 
     private static class Container {
         private final String id;
