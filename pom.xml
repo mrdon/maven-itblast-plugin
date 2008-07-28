@@ -41,6 +41,17 @@
                 <artifactId>wagon-svn</artifactId>
                 <version>1.8</version>
             </extension>
+            <extension>
+                <groupId>org.apache.maven.scm</groupId>
+                <artifactId>maven-scm-provider-gitcore</artifactId>
+                <version>1.0</version>
+            </extension>
+            <extension>
+                <groupId>org.apache.maven.scm</groupId>
+                <artifactId>maven-scm-provider-gitexe</artifactId>
+                <version>1.1-SNAPSHOT</version>
+            </extension>
+            <extension>
         </extensions>
  
     </build>
@@ -59,5 +70,9 @@
         </repository>
     </distributionManagement>
 
+    <scm>
+        <connection>scm:git:git@github:mrdon/maven-itblast-plugin.git</connection>
+        <developerConnection>scm:git:git@github:mrdon/maven-itblast-plugin.git</developerConnection>
+    </scm>
 
 </project>
