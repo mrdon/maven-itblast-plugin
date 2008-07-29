@@ -205,7 +205,6 @@ public class ExecuteIntegrationTestsMojo
             File base = new File(projectBuildDirectory, container.getId());
             File source = new File(base, "surefire-reports");
             File dest = new File(projectBuildDirectory, "surefire-reports");
-            dest.mkdir();
             renameAndCopyTests(source, dest, container.getId());
 
             executeMojo(
@@ -223,6 +222,11 @@ public class ExecuteIntegrationTestsMojo
     }
 
     void renameAndCopyTests(File source, File dest, String container) {
+        if (!source.exists()) {
+            return;
+        } else if (!dest.exists()) {
+            dest.mkdir();
+        }
         for (File test : source.listFiles(new FilenameFilter() {
                 public boolean accept(File file, String s) { return s.startsWith("TEST-") && s.endsWith(".xml"); }
             })) {
