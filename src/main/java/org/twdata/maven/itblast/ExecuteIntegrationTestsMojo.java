@@ -123,7 +123,11 @@ public class ExecuteIntegrationTestsMojo
             getLog().info( "Integration tests are skipped." );
             return;
         }
-        for (String containerId : containers.split(",")) {
+        MojoExecutionException surefireException = null;
+        String[] containerIds = containers.split(",");
+        for (int x = 0; x<containerIds.length; x++) {
+            String containerId = containerIds[x];
+            boolean isLastContainer = (x == containerIds.length - 1);
             Container container = idToContainerMap.get(containerId);
             if (container == null) {
                 throw new IllegalArgumentException("Container "+containerId+" not supported");
@@ -165,29 +169,39 @@ public class ExecuteIntegrationTestsMojo
                     env
                 );
 
-            executeMojo(
-                    plugin(
-                            groupId("org.apache.maven.plugins"),
-                            artifactId("maven-surefire-plugin")
-                    ),
-                    goal("test"),
-                    configuration(
-                            element(name("includes"),
-                                    element(name("include"), functionalTestPattern)
-                            ),
-                            element(name("excludes"),
-                                    element(name("exclude"), "**/*$*")
-                            ),
-                            element(name("systemProperties"),
-                                    element(name("property"),
-                                            element(name("name"), "http.port"),
-                                            element(name("value"), String.valueOf(httpPort))
-                                    )
-                            ),
-                            element(name("reportsDirectory"), "${project.build.directory}/"+container.getId()+"/surefire-reports")
-                    ),
-                    env
-                );
+            try {
+                executeMojo(
+                        plugin(
+                                groupId("org.apache.maven.plugins"),
+                                artifactId("maven-surefire-plugin")
+                        ),
+                        goal("test"),
+                        configuration(
+                                element(name("includes"),
+                                        element(name("include"), functionalTestPattern)
+                                ),
+                                element(name("excludes"),
+                                        element(name("exclude"), "**/*$*")
+                                ),
+                                element(name("systemProperties"),
+                                        element(name("property"),
+                                                element(name("name"), "http.port"),
+                                                element(name("value"), String.valueOf(httpPort))
+                                        )
+                                ),
+                                element(name("reportsDirectory"), "${project.build.directory}/"+container.getId()+"/surefire-reports")
+                        ),
+                        env
+                    );
+            } catch (MojoExecutionException ex)
+            {
+                String msg = "Unable to execute tests for container "+container.getId()+": "+ex.getMessage();
+                if (!isLastContainer)
+                    msg += ", continuing to run tests against other containers";
+                getLog().error(msg);
+                surefireException = ex;
+            }
+
             File base = new File(projectBuildDirectory, container.getId());
             File source = new File(base, "surefire-reports");
             File dest = new File(projectBuildDirectory, "surefire-reports");
@@ -200,6 +214,11 @@ public class ExecuteIntegrationTestsMojo
                     new Xpp3Dom(cargoConfig),
                     env
                 );
+
+            // throw the saved surefire exception
+            if (isLastContainer && surefireException != null) {
+                throw surefireException;
+            }
         }
     }
 
