@@ -25,9 +25,11 @@ public class ExecuteIntegrationTestsMojo
 {
     private final Map<String,Container> idToContainerMap = new HashMap<String,Container>() {{
         put("tomcat5x", new Container("tomcat5x", "https://m2proxy.atlassian.com/repository/public/org/apache/tomcat/apache-tomcat/5.5.25/apache-tomcat-5.5.25.zip"));
+        put("tomcat6x", new Container("tomcat6x", "http://apache.mirror.aussiehq.net.au/tomcat/tomcat-6/v6.0.18/bin/apache-tomcat-6.0.18.zip"));
         put("resin3x", new Container("resin3x", "http://www.caucho.com/download/resin-3.0.26.zip"));
         put("jboss42x", new Container("jboss42x", "http://internode.dl.sourceforge.net/sourceforge/jboss/jboss-4.2.3.GA.zip"));
         put("jetty6x", new Container("jetty6x"));
+
     }};
 
     /**
@@ -136,36 +138,14 @@ public class ExecuteIntegrationTestsMojo
             Plugin cargoPlugin = plugin(
                             groupId("org.codehaus.cargo"),
                             artifactId("cargo-maven2-plugin"),
-                            version("1.0-alpha-5")
-                    );
-            Xpp3Dom cargoConfig = configuration(
-                            element(name("wait"), Boolean.toString(wait)),
-                            element(name("container"),
-                                    element(name("containerId"), container.getId()),
-                                    element(name("type"), container.getType()),
-                                    element(name("zipUrlInstaller"),
-                                            element(name("url"), container.getUrl())
-                                    ),
-                                    element(name("output"), "${project.build.directory}/"+container.getId()+"/output.log"),
-                                    element(name("log"), "${project.build.directory}/"+container.getId()+"/cargo.log"),
-                                    element(name("systemProperties"),
-                                            element(name("org.apache.commons.logging.Log"), "org.apache.commons.logging.impl.SimpleLog")
-                                    )
-                            ),
-                            element(name("configuration"),
-                                    element(name("home"), "${project.build.directory}/"+container.getId()+"/server"),
-                                    element(name("properties"),
-                                                element(name("cargo.servlet.port"), String.valueOf(httpPort)),
-                                                element(name("cargo.rmi.port"), String.valueOf(rmiPort))
-                                    )
-                            )
+                            version("1.0-beta-2")
                     );
             ExecutionEnvironment env = executionEnvironment(project, session, pluginManager);
             
             executeMojo(
                     cargoPlugin,
                     goal("start"),
-                    new Xpp3Dom(cargoConfig),
+                    new Xpp3Dom(buildCargoConfig(container, "start")),
                     env
                 );
 
@@ -210,7 +190,7 @@ public class ExecuteIntegrationTestsMojo
             executeMojo(
                     cargoPlugin,
                     goal("stop"),
-                    new Xpp3Dom(cargoConfig),
+                    new Xpp3Dom(buildCargoConfig(container, "stop")),
                     env
                 );
 
@@ -219,6 +199,32 @@ public class ExecuteIntegrationTestsMojo
                 throw surefireException;
             }
         }
+    }
+
+    private Xpp3Dom buildCargoConfig(Container container, String identifier)
+    {
+        return configuration(
+                        element(name("wait"), Boolean.toString(wait)),
+                        element(name("container"),
+                                element(name("containerId"), container.getId()),
+                                element(name("type"), container.getType()),
+                                element(name("zipUrlInstaller"),
+                                        element(name("url"), container.getUrl())
+                                ),
+                                element(name("output"), "${project.build.directory}/"+container.getId()+"/output-"+identifier+".log"),
+                                element(name("log"), "${project.build.directory}/"+container.getId()+"/cargo-"+identifier+".log"),
+                                element(name("systemProperties"),
+                                        element(name("org.apache.commons.logging.Log"), "org.apache.commons.logging.impl.SimpleLog")
+                                )
+                        ),
+                        element(name("configuration"),
+                                element(name("home"), "${project.build.directory}/"+container.getId()+"/server"),
+                                element(name("properties"),
+                                            element(name("cargo.servlet.port"), String.valueOf(httpPort)),
+                                            element(name("cargo.rmi.port"), String.valueOf(rmiPort))
+                                )
+                        )
+                );
     }
 
     void renameAndCopyTests(File source, File dest, String container) {
