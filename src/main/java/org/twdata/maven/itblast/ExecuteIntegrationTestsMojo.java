@@ -9,9 +9,10 @@ import org.apache.maven.model.Plugin;
 import static org.twdata.maven.mojoexecutor.MojoExecutor.*;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
 
-import java.util.Map;
-import java.util.HashMap;
+import java.util.*;
 import java.io.*;
+import java.net.ServerSocket;
+import java.net.Socket;
 
 /**
  * Run functional tests
@@ -21,16 +22,17 @@ import java.io.*;
  * @phase integration-test
  */
 public class ExecuteIntegrationTestsMojo
-    extends AbstractMojo
+        extends AbstractMojo
 {
-    private final Map<String,Container> idToContainerMap = new HashMap<String,Container>() {{
-        put("tomcat5x", new Container("tomcat5x", "https://m2proxy.atlassian.com/repository/public/org/apache/tomcat/apache-tomcat/5.5.25/apache-tomcat-5.5.25.zip"));
-        put("tomcat6x", new Container("tomcat6x", "http://apache.mirror.aussiehq.net.au/tomcat/tomcat-6/v6.0.18/bin/apache-tomcat-6.0.18.zip"));
-        put("resin3x", new Container("resin3x", "http://www.caucho.com/download/resin-3.0.26.zip"));
-        put("jboss42x", new Container("jboss42x", "http://internode.dl.sourceforge.net/sourceforge/jboss/jboss-4.2.3.GA.zip"));
-        put("jetty6x", new Container("jetty6x"));
+    private final Map<String, Container> idToContainerMap = new HashMap<String, Container>()
+    {{
+            put("tomcat5x", new Container("tomcat5x", "https://m2proxy.atlassian.com/repository/public/org/apache/tomcat/apache-tomcat/5.5.25/apache-tomcat-5.5.25.zip"));
+            put("tomcat6x", new Container("tomcat6x", "http://apache.mirror.aussiehq.net.au/tomcat/tomcat-6/v6.0.18/bin/apache-tomcat-6.0.18.zip"));
+            put("resin3x", new Container("resin3x", "http://www.caucho.com/download/resin-3.0.26.zip"));
+            put("jboss42x", new Container("jboss42x", "http://internode.dl.sourceforge.net/sourceforge/jboss/jboss-4.2.3.GA.zip"));
+            put("jetty6x", new Container("jetty6x"));
 
-    }};
+        }};
 
     /**
      * List of containers to test against
@@ -44,14 +46,14 @@ public class ExecuteIntegrationTestsMojo
      *
      * @parameter expression="${http.port}"
      */
-    private int httpPort = 8080;
+    private int httpPort = 0;
 
     /**
      * RMI port for cargo to control the container
      *
      * @parameter expression="${rmi.port}"
      */
-    private int rmiPort = 10232;
+    private int rmiPort = 0;
 
     /**
      * Project build directory
@@ -119,37 +121,45 @@ public class ExecuteIntegrationTestsMojo
     protected PluginManager pluginManager;
 
     public void execute()
-        throws MojoExecutionException
+            throws MojoExecutionException
     {
-        if (skip || skipTests) {
-            getLog().info( "Integration tests are skipped." );
+        if (skip || skipTests)
+        {
+            getLog().info("Integration tests are skipped.");
             return;
         }
         MojoExecutionException surefireException = null;
         String[] containerIds = containers.split(",");
-        for (int x = 0; x<containerIds.length; x++) {
+        for (int x = 0; x < containerIds.length; x++)
+        {
             String containerId = containerIds[x];
             boolean isLastContainer = (x == containerIds.length - 1);
             Container container = idToContainerMap.get(containerId);
-            if (container == null) {
-                throw new IllegalArgumentException("Container "+containerId+" not supported");
+            if (container == null)
+            {
+                throw new IllegalArgumentException("Container " + containerId + " not supported");
             }
-            getLog().info("Running integration tests on the "+container.getId()+" container");
+
+            int actualHttpPort = pickFreePort(httpPort);
+            int actualRmiPort = pickFreePort(rmiPort);
+            getLog().info("Running integration tests on the " + container.getId() + " container on ports "
+                    + actualHttpPort + " (http) and " + actualRmiPort + " (rmi)");
             Plugin cargoPlugin = plugin(
-                            groupId("org.codehaus.cargo"),
-                            artifactId("cargo-maven2-plugin"),
-                            version("1.0-beta-2")
-                    );
+                    groupId("org.codehaus.cargo"),
+                    artifactId("cargo-maven2-plugin"),
+                    version("1.0-beta-2")
+            );
             ExecutionEnvironment env = executionEnvironment(project, session, pluginManager);
-            
+
             executeMojo(
                     cargoPlugin,
                     goal("start"),
-                    new Xpp3Dom(buildCargoConfig(container, "start")),
+                    new Xpp3Dom(buildCargoConfig(container, "start", actualHttpPort, actualRmiPort)),
                     env
-                );
+            );
 
-            try {
+            try
+            {
                 executeMojo(
                         plugin(
                                 groupId("org.apache.maven.plugins"),
@@ -166,18 +176,21 @@ public class ExecuteIntegrationTestsMojo
                                 element(name("systemProperties"),
                                         element(name("property"),
                                                 element(name("name"), "http.port"),
-                                                element(name("value"), String.valueOf(httpPort))
+                                                element(name("value"), String.valueOf(actualHttpPort))
                                         )
                                 ),
-                                element(name("reportsDirectory"), "${project.build.directory}/"+container.getId()+"/surefire-reports")
+                                element(name("reportsDirectory"), "${project.build.directory}/" + container.getId() + "/surefire-reports")
                         ),
                         env
-                    );
-            } catch (MojoExecutionException ex)
+                );
+            }
+            catch (MojoExecutionException ex)
             {
-                String msg = "Unable to execute tests for container "+container.getId()+": "+ex.getMessage();
+                String msg = "Unable to execute tests for container " + container.getId() + ": " + ex.getMessage();
                 if (!isLastContainer)
+                {
                     msg += ", continuing to run tests against other containers";
+                }
                 getLog().error(msg);
                 surefireException = ex;
             }
@@ -190,80 +203,134 @@ public class ExecuteIntegrationTestsMojo
             executeMojo(
                     cargoPlugin,
                     goal("stop"),
-                    new Xpp3Dom(buildCargoConfig(container, "stop")),
+                    new Xpp3Dom(buildCargoConfig(container, "stop", actualHttpPort, actualRmiPort)),
                     env
-                );
+            );
 
             // throw the saved surefire exception
-            if (isLastContainer && surefireException != null) {
+            if (isLastContainer && surefireException != null)
+            {
                 throw surefireException;
             }
         }
     }
 
-    private Xpp3Dom buildCargoConfig(Container container, String identifier)
+    private int pickFreePort(int requestedPort)
     {
-        return configuration(
-                        element(name("wait"), Boolean.toString(wait)),
-                        element(name("container"),
-                                element(name("containerId"), container.getId()),
-                                element(name("type"), container.getType()),
-                                element(name("zipUrlInstaller"),
-                                        element(name("url"), container.getUrl())
-                                ),
-                                element(name("output"), "${project.build.directory}/"+container.getId()+"/output-"+identifier+".log"),
-                                element(name("log"), "${project.build.directory}/"+container.getId()+"/cargo-"+identifier+".log"),
-                                element(name("systemProperties"),
-                                        element(name("org.apache.commons.logging.Log"), "org.apache.commons.logging.impl.SimpleLog")
-                                )
-                        ),
-                        element(name("configuration"),
-                                element(name("home"), "${project.build.directory}/"+container.getId()+"/server"),
-                                element(name("properties"),
-                                            element(name("cargo.servlet.port"), String.valueOf(httpPort)),
-                                            element(name("cargo.rmi.port"), String.valueOf(rmiPort))
-                                )
-                        )
-                );
+        if (requestedPort > 0)
+        {
+            return requestedPort;
+        }
+        ServerSocket socket = null;
+        try
+        {
+            socket = new ServerSocket(0);
+            return socket.getLocalPort();
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException("Error opening socket", e);
+        }
+        finally
+        {
+            if (socket != null)
+            {
+                try
+                {
+                    socket.close();
+                }
+                catch (IOException e)
+                {
+                    throw new RuntimeException("Error closing socket", e);
+                }
+            }
+        }
     }
 
-    void renameAndCopyTests(File source, File dest, String container) {
-        if (!source.exists()) {
+    private Xpp3Dom buildCargoConfig(Container container, String identifier, int actualHttpPort, int actualRmiPort)
+    {
+        return configuration(
+                element(name("wait"), Boolean.toString(wait)),
+                element(name("container"),
+                        element(name("containerId"), container.getId()),
+                        element(name("type"), container.getType()),
+                        element(name("zipUrlInstaller"),
+                                element(name("url"), container.getUrl())
+                        ),
+                        //element(name("output"), "${project.build.directory}/"+container.getId()+"/output-"+identifier+".log"),
+                        //element(name("log"), "${project.build.directory}/"+container.getId()+"/cargo-"+identifier+".log"),
+                        element(name("systemProperties"),
+                                element(name("org.apache.commons.logging.Log"), "org.apache.commons.logging.impl.SimpleLog")
+                        )
+                ),
+                element(name("configuration"),
+                        element(name("home"), "${project.build.directory}/" + container.getId() + "/server"),
+                        element(name("properties"),
+                                element(name("cargo.servlet.port"), String.valueOf(actualHttpPort)),
+                                element(name("cargo.rmi.port"), String.valueOf(actualRmiPort))
+                        )
+                )
+        );
+    }
+
+    void renameAndCopyTests(File source, File dest, String container)
+    {
+        if (!source.exists())
+        {
             return;
-        } else if (!dest.exists()) {
-            dest.mkdir();
         }
-        for (File test : source.listFiles(new FilenameFilter() {
-                public boolean accept(File file, String s) { return s.startsWith("TEST-") && s.endsWith(".xml"); }
-            })) {
+        else
+        {
+            if (!dest.exists())
+            {
+                dest.mkdir();
+            }
+        }
+        for (File test : source.listFiles(new FilenameFilter()
+        {
+            public boolean accept(File file, String s)
+            {
+                return s.startsWith("TEST-") && s.endsWith(".xml");
+            }
+        }))
+        {
 
             String testName = test.getName().substring("TEST-".length(), test.getName().length() - ".xml".length());
-            String betterTestName = testName+"OnContainer"+container;
+            String betterTestName = testName + "OnContainer" + container;
 
-            File target = new File(dest, "TEST-"+betterTestName+".xml");
+            File target = new File(dest, "TEST-" + betterTestName + ".xml");
             BufferedReader fin = null;
             PrintWriter fout = null;
-            try {
+            try
+            {
                 fin = new BufferedReader(new InputStreamReader(new FileInputStream(test)));
                 fout = new PrintWriter(new FileWriter(target));
                 String line;
-                while ((line = fin.readLine()) != null) {
+                while ((line = fin.readLine()) != null)
+                {
                     fout.println(line.replaceAll(testName, betterTestName));
                 }
-            } catch (IOException ex) {
+            }
+            catch (IOException ex)
+            {
                 ex.printStackTrace();
-            } finally {
+            }
+            finally
+            {
 
                 try
                 {
-                    if (fin != null) {
+                    if (fin != null)
+                    {
                         fin.close();
                     }
-                } catch (IOException e)
+                }
+                catch (IOException e)
                 {
                     e.printStackTrace();
                 }
-                if (fout != null) {
+                if (fout != null)
+                {
                     fout.close();
                 }
             }
@@ -271,32 +338,38 @@ public class ExecuteIntegrationTestsMojo
     }
 
 
-    private static class Container {
+    private static class Container
+    {
         private final String id;
         private final String type;
         private final String url;
 
-        public Container(String id, String url) {
+        public Container(String id, String url)
+        {
             this.id = id;
             this.type = "installed";
             this.url = url;
         }
 
-        public Container(String id) {
+        public Container(String id)
+        {
             this.id = id;
             this.type = "embedded";
             this.url = null;
         }
 
-        public String getId() {
+        public String getId()
+        {
             return id;
         }
 
-        public String getType() {
+        public String getType()
+        {
             return type;
         }
 
-        public String getUrl() {
+        public String getUrl()
+        {
             return url;
         }
     }

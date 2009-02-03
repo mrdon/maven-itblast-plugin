@@ -6,14 +6,11 @@
     <version>0.5-SNAPSHOT</version>
     <name>maven-itblast-plugin Maven Mojo</name>
     <url>http://maven.apache.org</url>
-    <prerequisites>
-        <maven>2.0.6</maven>
-    </prerequisites>
     <dependencies>
         <dependency>
             <groupId>org.twdata.maven</groupId>
             <artifactId>mojo-executor</artifactId>
-            <version>0.1</version>
+            <version>0.2</version>
         </dependency>
         <dependency>
             <groupId>commons-io</groupId>
@@ -105,7 +102,7 @@
         <repository>
             <id>mojo-executor-repository</id>
             <name>Mojo Executor Repository for Maven</name>
-            <url>http://mojo-executor.googlecode.com/svn/repo/</url>
+            <url>http://twdata-m2-repository.googlecode.com/svn/</url>
         </repository>
         <repository>
             <id>don-asf-repository</id>
