@@ -10,7 +10,7 @@
         <dependency>
             <groupId>org.twdata.maven</groupId>
             <artifactId>mojo-executor</artifactId>
-            <version>0.2</version>
+            <version>0.2.1</version>
         </dependency>
         <dependency>
             <groupId>commons-io</groupId>
