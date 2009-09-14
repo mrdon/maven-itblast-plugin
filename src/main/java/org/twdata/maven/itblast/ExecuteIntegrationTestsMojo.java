@@ -26,10 +26,10 @@ public class ExecuteIntegrationTestsMojo
 {
     private final Map<String, Container> idToContainerMap = new HashMap<String, Container>()
     {{
-            put("tomcat5x", new Container("tomcat5x", "https://m2proxy.atlassian.com/repository/public/org/apache/tomcat/apache-tomcat/5.5.25/apache-tomcat-5.5.25.zip"));
-            put("tomcat6x", new Container("tomcat6x", "http://apache.mirror.aussiehq.net.au/tomcat/tomcat-6/v6.0.18/bin/apache-tomcat-6.0.18.zip"));
-            put("resin3x", new Container("resin3x", "http://www.caucho.com/download/resin-3.0.26.zip"));
-            put("jboss42x", new Container("jboss42x", "http://internode.dl.sourceforge.net/sourceforge/jboss/jboss-4.2.3.GA.zip"));
+            put("tomcat5x", new Container("tomcat5x", "org.apache.tomcat", "apache-tomcat", "5.5.26"));
+            put("tomcat6x", new Container("tomcat6x", "org.apache.tomcat", "apache-tomcat", "6.0.20"));
+            put("resin3x", new Container("resin3x", "com.caucho", "resin", "3.0.26"));
+            put("jboss42x", new Container("jboss42x", "org.jboss.jbossas", "jbossas", "4.2.3.GA"));
             put("jetty6x", new Container("jetty6x"));
 
         }};
@@ -140,6 +140,22 @@ public class ExecuteIntegrationTestsMojo
                 throw new IllegalArgumentException("Container " + containerId + " not supported");
             }
 
+            File containerDir = new File(project.getBuild().getDirectory() + "/container/" + container.getId());
+
+            // retrieve non-embedded containers
+            if (!"embedded".equals(container.getType()))
+            {
+                if (containerDir.exists())
+                {
+                    getLog().info("Reusing unpacked container '" + container.getId() + "' from " + containerDir.getPath());
+                }
+                else
+                {
+                    getLog().info("Unpacking container '" + container.getId() + "' from container artifact: " + container.toString());
+                        unpackContainer(container, containerDir.getPath());
+                }
+            }
+
             int actualHttpPort = pickFreePort(httpPort);
             int actualRmiPort = pickFreePort(rmiPort);
             getLog().info("Running integration tests on the " + container.getId() + " container on ports "
@@ -154,7 +170,7 @@ public class ExecuteIntegrationTestsMojo
             executeMojo(
                     cargoPlugin,
                     goal("start"),
-                    new Xpp3Dom(buildCargoConfig(container, "start", actualHttpPort, actualRmiPort)),
+                    new Xpp3Dom(buildCargoConfig(container, containerDir, actualHttpPort, actualRmiPort)),
                     env
             );
 
@@ -203,7 +219,7 @@ public class ExecuteIntegrationTestsMojo
             executeMojo(
                     cargoPlugin,
                     goal("stop"),
-                    new Xpp3Dom(buildCargoConfig(container, "stop", actualHttpPort, actualRmiPort)),
+                    new Xpp3Dom(buildCargoConfig(container, containerDir, actualHttpPort, actualRmiPort)),
                     env
             );
 
@@ -247,16 +263,14 @@ public class ExecuteIntegrationTestsMojo
         }
     }
 
-    private Xpp3Dom buildCargoConfig(Container container, String identifier, int actualHttpPort, int actualRmiPort)
+    private Xpp3Dom buildCargoConfig(Container container, File containerDir, int actualHttpPort, int actualRmiPort)
     {
         return configuration(
                 element(name("wait"), Boolean.toString(wait)),
                 element(name("container"),
                         element(name("containerId"), container.getId()),
                         element(name("type"), container.getType()),
-                        element(name("zipUrlInstaller"),
-                                element(name("url"), container.getUrl())
-                        ),
+                        element(name("home"), containerDir.getPath() + "/" + container.getArtifactId() + "-" + container.getVersion()),
                         //element(name("output"), "${project.build.directory}/"+container.getId()+"/output-"+identifier+".log"),
                         //element(name("log"), "${project.build.directory}/"+container.getId()+"/cargo-"+identifier+".log"),
                         element(name("systemProperties"),
@@ -264,13 +278,37 @@ public class ExecuteIntegrationTestsMojo
                         )
                 ),
                 element(name("configuration"),
-                        element(name("home"), "${project.build.directory}/" + container.getId() + "/server"),
+                        element(name("home"), containerDir.getPath() + "/cargo-home"),
+                        element(name("type"), "standalone"),
                         element(name("properties"),
                                 element(name("cargo.servlet.port"), String.valueOf(actualHttpPort)),
                                 element(name("cargo.rmi.port"), String.valueOf(actualRmiPort))
+
                         )
                 )
         );
+    }
+
+    private void unpackContainer(final Container container, String outputDirectory) throws MojoExecutionException
+    {
+        executeMojo(
+            plugin(
+                    groupId("org.apache.maven.plugins"),
+                    artifactId("maven-dependency-plugin"),
+                    version("2.0")
+            ),
+            goal("unpack"),
+            configuration(
+                    element(name("artifactItems"),
+                            element(name("artifactItem"),
+                                    element(name("groupId"), container.getGroupId()),
+                                    element(name("artifactId"), container.getArtifactId()),
+                                    element(name("version"), container.getVersion()),
+                                    element(name("type"), "zip"))),
+                    element(name("outputDirectory"), outputDirectory)
+            ),
+            executionEnvironment(project, session, pluginManager));
+
     }
 
     void renameAndCopyTests(File source, File dest, String container)
@@ -342,20 +380,26 @@ public class ExecuteIntegrationTestsMojo
     {
         private final String id;
         private final String type;
-        private final String url;
+        private final String groupId;
+        private final String artifactId;
+        private final String version;
 
-        public Container(String id, String url)
+        public Container(String id, String groupId, String artifactId, String version)
         {
             this.id = id;
+            this.groupId = groupId;
+            this.artifactId = artifactId;
+            this.version = version;
             this.type = "installed";
-            this.url = url;
         }
 
         public Container(String id)
         {
             this.id = id;
             this.type = "embedded";
-            this.url = null;
+            this.groupId = null;
+            this.artifactId = null;
+            this.version = null;
         }
 
         public String getId()
@@ -368,9 +412,19 @@ public class ExecuteIntegrationTestsMojo
             return type;
         }
 
-        public String getUrl()
+        public String getGroupId()
         {
-            return url;
+            return groupId;
+        }
+
+        public String getArtifactId()
+        {
+            return artifactId;
+        }
+
+        public String getVersion()
+        {
+            return version;
         }
     }
 }
